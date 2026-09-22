@@ -1,0 +1,319 @@
+name: Build OpenWrt 25.12.5 Netcore N30 Pro
+
+"on":
+  workflow_dispatch:
+
+env:
+  OPENWRT_VERSION: v25.12.5
+  OPENWRT_REPO: https://github.com/openwrt/openwrt.git
+
+jobs:
+  build:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt update
+
+          sudo apt install -y \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            gawk \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-setuptools \
+            rsync \
+            unzip \
+            wget \
+            zlib1g-dev \
+            file \
+            ccache
+
+
+      - name: Clone OpenWrt
+        shell: bash
+        run: |
+
+          git clone \
+            --depth=1 \
+            --branch ${OPENWRT_VERSION} \
+            ${OPENWRT_REPO} \
+            openwrt
+
+
+      - name: Update feeds
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          ./scripts/feeds update -a
+
+          ./scripts/feeds install -a
+
+
+      - name: Add PassWall feeds
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git" \
+          >> feeds.conf.default
+
+
+          echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git" \
+          >> feeds.conf.default
+
+
+          ./scripts/feeds update passwall_packages
+          ./scripts/feeds update passwall
+
+          ./scripts/feeds install -a -p passwall_packages
+          ./scripts/feeds install -a -p passwall
+
+
+      - name: Detect N30 Pro profile
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          echo "Searching Netcore N30 Pro profile"
+
+          grep -R \
+          "nx30v2\|n30pro\|netcore" \
+          target/linux/mediatek/image \
+          || true
+
+
+      - name: Configure target
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          cat > .config <<'EOF'
+
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl=y
+
+EOF
+
+
+          make defconfig
+
+
+      - name: Configure packages
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          cat >> .config <<'EOF'
+
+CONFIG_PACKAGE_luci-app-firewall=y
+
+CONFIG_PACKAGE_luci-app-passwall=y
+
+CONFIG_PACKAGE_xray-core=y
+
+CONFIG_PACKAGE_sing-box=y
+
+CONFIG_PACKAGE_chinadns-ng=y
+
+CONFIG_PACKAGE_dns2socks=y
+
+CONFIG_PACKAGE_tcping=y
+
+CONFIG_PACKAGE_ip-full=y
+
+
+CONFIG_PACKAGE_kmod-nft-socket=y
+
+CONFIG_PACKAGE_kmod-nft-tproxy=y
+
+CONFIG_PACKAGE_kmod-tun=y
+
+
+CONFIG_PACKAGE_mwan3=y
+
+CONFIG_PACKAGE_luci-app-mwan3=y
+
+
+CONFIG_PACKAGE_samba4-server=y
+
+CONFIG_PACKAGE_luci-app-samba4=y
+
+
+CONFIG_PACKAGE_block-mount=y
+
+CONFIG_PACKAGE_kmod-usb-storage=y
+
+CONFIG_PACKAGE_kmod-fs-ext4=y
+
+CONFIG_PACKAGE_kmod-fs-vfat=y
+
+CONFIG_PACKAGE_e2fsprogs=y
+
+
+CONFIG_PACKAGE_kmod-usb-net=y
+
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+
+CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+
+CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+
+CONFIG_PACKAGE_kmod-usb-net-rndis=y
+
+
+CONFIG_PACKAGE_kmod-usb-serial=y
+
+CONFIG_PACKAGE_kmod-usb-serial-option=y
+
+CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+
+CONFIG_PACKAGE_kmod-usb-wdm=y
+
+
+CONFIG_PACKAGE_uqmi=y
+
+CONFIG_PACKAGE_umbim=y
+
+CONFIG_PACKAGE_usb-modeswitch=y
+
+
+EOF
+
+
+          make defconfig
+
+      - name: Final configuration check
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          echo "================================="
+          echo "Final package verification"
+          echo "================================="
+
+          make defconfig
+
+
+          REQUIRED_PACKAGES="
+          luci
+          luci-ssl
+          luci-app-passwall
+          xray-core
+          sing-box
+          mwan3
+          luci-app-mwan3
+          samba4-server
+          luci-app-samba4
+          uqmi
+          umbim
+          usb-modeswitch
+          "
+
+
+          for pkg in $REQUIRED_PACKAGES
+          do
+            echo "Checking package: $pkg"
+
+            grep -q \
+            "CONFIG_PACKAGE_${pkg}=y" \
+            .config \
+            || {
+              echo "Missing package: $pkg"
+              exit 1
+            }
+
+          done
+
+
+          echo "Package check passed"
+
+
+      - name: Download sources
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          make download -j$(nproc)
+
+
+      - name: Compile firmware
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          echo "================================="
+          echo "Start compiling"
+          echo "================================="
+
+
+          make -j$(nproc) V=s
+
+
+
+      - name: Generate manifest
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          mkdir -p output
+
+
+          cp .config output/config
+
+
+          find bin/targets \
+          -type f \
+          \( \
+          -name "*sysupgrade*" \
+          -o \
+          -name "*.manifest" \
+          \) \
+          -exec cp {} output/ \;
+
+
+
+      - name: Firmware information
+        working-directory: openwrt
+        shell: bash
+        run: |
+
+          echo "================================="
+          echo "Firmware files"
+          echo "================================="
+
+          ls -lh output
+
+
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: OpenWrt-25.12.5-Netcore-N30-Pro
+
+          path: openwrt/output/
+
+          retention-days: 30
