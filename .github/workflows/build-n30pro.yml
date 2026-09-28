@@ -1,311 +1,416 @@
-name: Build OpenWrt 25.12.5 Netcore N30 Pro
+name: Build ImmortalWrt 25.12.2 Netcore N30 Pro
 
 on:
   workflow_dispatch:
 
-env:
-  OPENWRT_VERSION: v25.12.5
-  OPENWRT_REPO: https://github.com/openwrt/openwrt.git
-  PATCH_REPO: https://github.com/liuyi-htu/Netcore-N30-Pro-patch-for-OpenWrt.git
+permissions:
+  contents: read
 
 jobs:
-
   build:
-
     runs-on: ubuntu-24.04
-
+    timeout-minutes: 360
 
     steps:
-
-
-    - name: Checkout
-      uses: actions/checkout@v4
-
-
-
-    - name: Install dependencies
-      run: |
-
-        sudo apt update
-
-        sudo apt install -y \
-          build-essential \
-          clang \
-          flex \
-          bison \
-          gawk \
-          gettext \
-          git \
-          libncurses-dev \
-          libssl-dev \
-          python3 \
-          python3-setuptools \
-          rsync \
-          unzip \
-          wget \
-          file \
-          zlib1g-dev \
-          ccache
-
-
-
-    - name: Clone OpenWrt 25.12.5
-      run: |
-
-        git clone \
-          --depth=1 \
-          --branch ${OPENWRT_VERSION} \
-          ${OPENWRT_REPO} \
-          openwrt
-
-
-
-    - name: Clone N30 Pro adaptation patch
-      run: |
-
-        git clone \
-          --depth=1 \
-          ${PATCH_REPO} \
-          n30pro-patch
-
-
-
-    - name: Apply N30 Pro patch
-      working-directory: openwrt
-      run: |
-
-        bash ../n30pro-patch/scripts/apply-netcore-n30pro.sh \
-          ../n30pro-patch
-
-
-
-    - name: Add PassWall feeds
-      working-directory: openwrt
-      run: |
-
-        echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git" \
-        >> feeds.conf.default
-
-
-        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git" \
-        >> feeds.conf.default
-
-
-
-    - name: Update feeds
-      working-directory: openwrt
-      run: |
-
-        ./scripts/feeds update -a
-
-        ./scripts/feeds install -a
-
-
-
-    - name: Configure target
-      working-directory: openwrt
-      run: |
-
-        cat > .config <<'EOF'
-
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-
-CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n30-pro=y
-
-
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-
-
-CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_luci-ssl=y
-
-
-EOF
-
-
-        make defconfig
-
-
-
-    - name: Add packages
-      working-directory: openwrt
-      run: |
-
-        cat >> .config <<'EOF'
-
-
-# PassWall
-
-CONFIG_PACKAGE_luci-app-passwall=y
-
-CONFIG_PACKAGE_xray-core=y
-
-CONFIG_PACKAGE_sing-box=y
-
-CONFIG_PACKAGE_chinadns-ng=y
-
-CONFIG_PACKAGE_dns2socks=y
-
-CONFIG_PACKAGE_tcping=y
-
-CONFIG_PACKAGE_ip-full=y
-
-
-# PassWall kernel
-
-CONFIG_PACKAGE_kmod-nft-socket=y
-
-CONFIG_PACKAGE_kmod-nft-tproxy=y
-
-CONFIG_PACKAGE_kmod-tun=y
-
-
-
-# MWAN3
-
-CONFIG_PACKAGE_mwan3=y
-
-CONFIG_PACKAGE_luci-app-mwan3=y
-
-
-
-# Samba
-
-CONFIG_PACKAGE_samba4-server=y
-
-CONFIG_PACKAGE_luci-app-samba4=y
-
-
-
-# USB xHCI
-
-CONFIG_PACKAGE_kmod-usb3=y
-
-CONFIG_PACKAGE_kmod-usb-xhci-hcd=y
-
-CONFIG_PACKAGE_kmod-usb-xhci-mtk=y
-
-
-
-# USB storage
-
-CONFIG_PACKAGE_kmod-usb-storage=y
-
-CONFIG_PACKAGE_kmod-fs-ext4=y
-
-CONFIG_PACKAGE_kmod-fs-vfat=y
-
-CONFIG_PACKAGE_block-mount=y
-
-CONFIG_PACKAGE_e2fsprogs=y
-
-
-
-# USB modem
-
-CONFIG_PACKAGE_kmod-usb-net=y
-
-CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
-
-CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
-
-CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
-
-CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
-
-CONFIG_PACKAGE_kmod-usb-net-rndis=y
-
-
-CONFIG_PACKAGE_kmod-usb-serial=y
-
-CONFIG_PACKAGE_kmod-usb-serial-option=y
-
-CONFIG_PACKAGE_kmod-usb-serial-wwan=y
-
-CONFIG_PACKAGE_kmod-usb-wdm=y
-
-
-CONFIG_PACKAGE_uqmi=y
-
-CONFIG_PACKAGE_umbim=y
-
-CONFIG_PACKAGE_usb-modeswitch=y
-
-
-EOF
-
-
-        make defconfig
-
-
-
-    - name: Verify N30 Pro target
-      working-directory: openwrt
-      run: |
-
-        grep \
-        "CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n30-pro" \
-        .config
-
-
-
-    - name: Verify USB support
-      working-directory: openwrt
-      run: |
-
-        grep CONFIG_PACKAGE_kmod-usb3 .config
-
-        grep CONFIG_PACKAGE_kmod-usb-xhci-mtk .config
-
-
-
-    - name: Download
-      working-directory: openwrt
-      run: |
-
-        make download -j$(nproc)
-
-
-
-    - name: Compile
-      working-directory: openwrt
-      run: |
-
-        make -j$(nproc) V=s
-
-
-
-    - name: Collect firmware
-      working-directory: openwrt
-      run: |
-
-        mkdir output
-
-
-        find bin/targets \
-        -type f \
-        \( \
-        -name "*n30*" \
-        -o \
-        -name "*netcore*" \
-        -o \
-        -name "*.manifest" \
-        \) \
-        -exec cp {} output/ \;
-
-
-        cp .config output/config
-
-
-
-    - name: Upload firmware
-      uses: actions/upload-artifact@v4
-
-      with:
-
-        name: OpenWrt-25.12.5-Netcore-N30-Pro
-
-        path: openwrt/output
-
-        retention-days: 30
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk /opt/ghc
+          sudo apt-get clean
+          sudo docker system prune -af || true
+          df -h /
+
+      - name: Install build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo bash -c "$(curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh)"
+
+      - name: Check available disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          available_kb="$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR == 2 { print $4 }')"
+          required_kb="$((25 * 1024 * 1024))"
+
+          df -h "$GITHUB_WORKSPACE"
+
+          if [ "$available_kb" -lt "$required_kb" ]; then
+            echo "::error::Less than 25 GiB of free disk space remains. Use a larger runner or free more space."
+            exit 1
+          fi
+
+      - name: Clone ImmortalWrt 25.12.2
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # ImmortalWrt v25.12.2 release commit.
+          git init immortalwrt
+          git -C immortalwrt remote add origin https://github.com/immortalwrt/immortalwrt.git
+          git -C immortalwrt fetch --depth 1 origin 4fc16f2985a358bd43bb522e43f05395fcbd6ed5
+          git -C immortalwrt checkout --detach FETCH_HEAD
+
+          mkdir -p immortalwrt/build-logs
+
+      - name: Clone pinned N30 Pro adaptation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Pinned Netcore N30 Pro patch repository commit.
+          git init n30-patch
+          git -C n30-patch remote add origin https://github.com/liuyi-htu/Netcore-N30-Pro-patch-for-OpenWrt.git
+          git -C n30-patch fetch --depth 1 origin f8be85f26ce88f435389a112d9196a8159503ff2
+          git -C n30-patch checkout --detach FETCH_HEAD
+
+      - name: Apply N30 Pro adaptation
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! bash ../n30-patch/scripts/apply-netcore-n30pro.sh ../n30-patch \
+            > build-logs/n30-patch.log 2>&1; then
+            tail -n 200 build-logs/n30-patch.log
+            exit 1
+          fi
+
+          cat build-logs/n30-patch.log
+
+      - name: Verify N30 Pro board, USB VBUS and Wi-Fi DTS
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DTS="target/linux/mediatek/dts/mt7981b-netcore-n30-pro.dts"
+          NETWORK="target/linux/mediatek/filogic/base-files/etc/board.d/02_network"
+          WIFI_MAC="target/linux/mediatek/filogic/base-files/etc/hotplug.d/ieee80211/11_fix_wifi_mac"
+          IMAGE_MAKEFILE="target/linux/mediatek/image/filogic.mk"
+
+          test -f "$DTS"
+          test -f "$NETWORK"
+          test -f "$WIFI_MAC"
+          test -f "$IMAGE_MAKEFILE"
+
+          grep -Fq 'compatible = "netcore,n30-pro", "mediatek,mt7981";' "$DTS"
+          grep -Fq 'usb_vbus: regulator-usb-vbus {' "$DTS"
+          grep -Fq 'gpio = <&pio 23 GPIO_ACTIVE_HIGH>;' "$DTS"
+          grep -Fq 'enable-active-high;' "$DTS"
+          grep -Fq 'regulator-boot-on;' "$DTS"
+          grep -Fq '&usb_phy {' "$DTS"
+          grep -Fq '&xhci {' "$DTS"
+          grep -Fq 'vbus-supply = <&usb_vbus>;' "$DTS"
+          grep -Fq 'netcore,n30-pro' "$NETWORK"
+          grep -Fq 'netcore,n30-pro' "$WIFI_MAC"
+          grep -Fq 'TARGET_DEVICES += netcore_n30-pro' "$IMAGE_MAKEFILE"
+
+          echo "N30 Pro board, USB VBUS, XHCI, PHY and Wi-Fi board hooks verified."
+
+      - name: Add pinned PassWall feeds and install feeds
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            printf '%s\n' \
+              'src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git^c6d4772cea9bec6adc66261be2c3e6679a595250' \
+              'src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git^7b3d8efc2e1b9b2d6d78a078aea5961dd9c99a08'
+            cat feeds.conf.default
+          } > feeds.conf.default.new
+
+          mv feeds.conf.default.new feeds.conf.default
+
+          if ! ./scripts/feeds update -a > build-logs/feeds-update.log 2>&1; then
+            tail -n 200 build-logs/feeds-update.log
+            exit 1
+          fi
+
+          if ! {
+            ./scripts/feeds install -a &&
+            ./scripts/feeds uninstall luci-app-passwall &&
+            ./scripts/feeds install -p passwall_luci luci-app-passwall
+          } > build-logs/feeds-install.log 2>&1; then
+            tail -n 200 build-logs/feeds-install.log
+            exit 1
+          fi
+
+          test -f package/feeds/passwall_luci/luci-app-passwall/Makefile
+          grep -Fq 'INCLUDE_Xray' package/feeds/passwall_luci/luci-app-passwall/Makefile
+
+          echo "PassWall LuCI package selected from pinned passwall_luci feed."
+
+      - name: Generate configuration
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > .config <<'EOF'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n30-pro=y
+
+          CONFIG_DEVEL=y
+          CONFIG_CCACHE=y
+          CONFIG_BUILD_LOG=y
+
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl-openssl=y
+
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_kmod-usb-core=y
+          CONFIG_PACKAGE_kmod-usb3=y
+          CONFIG_PACKAGE_kmod-usb-xhci-hcd=y
+          CONFIG_PACKAGE_kmod-usb-xhci-mtk=y
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-usb-storage-uas=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_kmod-fs-exfat=y
+          CONFIG_PACKAGE_usbutils=y
+
+          CONFIG_PACKAGE_kmod-usb-serial=y
+          CONFIG_PACKAGE_kmod-usb-serial-option=y
+          CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+          CONFIG_PACKAGE_kmod-usb-wdm=y
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+          CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y
+          CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_usb-modeswitch=y
+          CONFIG_PACKAGE_usb-modeswitch-data=y
+          CONFIG_PACKAGE_uqmi=y
+          CONFIG_PACKAGE_umbim=y
+          CONFIG_PACKAGE_luci-proto-qmi=y
+          CONFIG_PACKAGE_luci-proto-mbim=y
+          CONFIG_PACKAGE_luci-proto-ncm=y
+
+          CONFIG_PACKAGE_wireguard-tools=y
+          CONFIG_PACKAGE_kmod-wireguard=y
+          CONFIG_PACKAGE_openvpn-openssl=y
+          CONFIG_PACKAGE_kmod-tun=y
+
+          CONFIG_PACKAGE_firewall4=y
+          CONFIG_PACKAGE_iptables-nft=y
+          CONFIG_PACKAGE_ip6tables-nft=y
+          CONFIG_PACKAGE_mwan3=y
+          CONFIG_PACKAGE_luci-app-mwan3=y
+
+          CONFIG_PACKAGE_zerotier=y
+          CONFIG_PACKAGE_luci-app-zerotier=y
+
+          CONFIG_PACKAGE_samba4-server=y
+          CONFIG_PACKAGE_luci-app-samba4=y
+
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=n
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=n
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=n
+
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_wget-ssl=y
+          CONFIG_PACKAGE_ca-certificates=y
+          CONFIG_PACKAGE_ip-full=y
+          EOF
+
+          if ! make defconfig > build-logs/defconfig.log 2>&1; then
+            tail -n 200 build-logs/defconfig.log
+            exit 1
+          fi
+
+      - name: Verify resolved configuration
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_config=(
+            CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n30-pro
+            CONFIG_CCACHE
+            CONFIG_PACKAGE_luci
+            CONFIG_PACKAGE_kmod-usb3
+            CONFIG_PACKAGE_kmod-usb-xhci-hcd
+            CONFIG_PACKAGE_kmod-usb-xhci-mtk
+            CONFIG_PACKAGE_kmod-usb-storage
+            CONFIG_PACKAGE_kmod-usb-storage-uas
+            CONFIG_PACKAGE_kmod-usb-net-rndis
+            CONFIG_PACKAGE_kmod-usb-net-qmi-wwan
+            CONFIG_PACKAGE_kmod-usb-net-cdc-mbim
+            CONFIG_PACKAGE_luci-proto-qmi
+            CONFIG_PACKAGE_luci-proto-mbim
+            CONFIG_PACKAGE_mwan3
+            CONFIG_PACKAGE_luci-app-mwan3
+            CONFIG_PACKAGE_iptables-nft
+            CONFIG_PACKAGE_ip6tables-nft
+            CONFIG_PACKAGE_zerotier
+            CONFIG_PACKAGE_luci-app-zerotier
+            CONFIG_PACKAGE_samba4-server
+            CONFIG_PACKAGE_luci-app-samba4
+            CONFIG_PACKAGE_luci-app-passwall
+            CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray
+          )
+
+          for symbol in "${required_config[@]}"; do
+            if ! grep -Fxq "${symbol}=y" .config; then
+              echo "::error::Required configuration missing after make defconfig: ${symbol}=y"
+              exit 1
+            fi
+          done
+
+          echo "Required target, LuCI, PassWall/Xray and USB package selections verified."
+
+      - name: Cache downloads and ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            immortalwrt/dl
+            immortalwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-25.12.2-${{ hashFiles('immortalwrt/.config', 'immortalwrt/feeds.conf.default') }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-25.12.2-
+
+      - name: Download sources
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! make download -j4 V=s > build-logs/download.log 2>&1; then
+            tail -n 250 build-logs/download.log
+            exit 1
+          fi
+
+          echo "Source downloads completed."
+
+      - name: Build firmware
+        working-directory: immortalwrt
+        shell: bash
+        env:
+          CCACHE_MAXSIZE: 2G
+        run: |
+          set -euo pipefail
+
+          if ! make -j4 V=s > build-logs/build.log 2>&1; then
+            tail -n 300 build-logs/build.log
+            exit 1
+          fi
+
+          echo "Firmware build completed."
+
+      - name: Verify firmware and included packages
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DIR="bin/targets/mediatek/filogic"
+          test -d "$DIR"
+
+          sysupgrade_image="$(find "$DIR" -maxdepth 1 -type f -name '*netcore_n30-pro*sysupgrade*' -print -quit)"
+          factory_image="$(find "$DIR" -maxdepth 1 -type f -name '*netcore_n30-pro*factory*' -print -quit)"
+          manifest="$(find "$DIR" -maxdepth 1 -type f -name '*.manifest' -print -quit)"
+
+          test -n "$sysupgrade_image"
+          test -n "$factory_image"
+          test -n "$manifest"
+
+          required_packages=(
+            mwan3
+            luci-app-mwan3
+            iptables-nft
+            ip6tables-nft
+            zerotier
+            luci-app-zerotier
+            samba4-server
+            luci-app-samba4
+            luci-app-passwall
+            xray-core
+            kmod-usb3
+            kmod-usb-xhci-hcd
+            kmod-usb-xhci-mtk
+            kmod-usb-storage
+            kmod-usb-storage-uas
+            kmod-usb-net-rndis
+            kmod-usb-net-qmi-wwan
+            kmod-usb-net-cdc-mbim
+            kmod-usb-net-cdc-ncm
+            kmod-usb-serial-option
+          )
+
+          for package in "${required_packages[@]}"; do
+            if ! awk -v package="$package" '$1 == package { found=1 } END { exit !found }' "$manifest"; then
+              echo "::error::Package missing from firmware manifest: ${package}"
+              exit 1
+            fi
+          done
+
+          echo "Firmware: $sysupgrade_image"
+          echo "Factory:  $factory_image"
+          echo "Manifest package checks passed."
+
+      - name: Generate build report
+        working-directory: immortalwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DIR="bin/targets/mediatek/filogic"
+
+          {
+            echo "ImmortalWrt v25.12.2"
+            echo "Netcore N30 Pro"
+            echo
+            echo "ImmortalWrt commit:"
+            git rev-parse HEAD
+            echo
+            echo "N30 Pro patch commit:"
+            git -C ../n30-patch rev-parse HEAD
+            echo
+            echo "PassWall LuCI feed commit:"
+            git -C feeds/passwall_luci rev-parse HEAD
+            echo
+            echo "PassWall packages feed commit:"
+            git -C feeds/passwall_packages rev-parse HEAD
+            echo
+            echo "Firmware files:"
+            find "$DIR" -maxdepth 1 -type f -name '*netcore_n30-pro*' -printf '%f\n'
+            echo
+            echo "Enabled requested packages:"
+            grep -E '^CONFIG_PACKAGE_(mwan3|luci-app-mwan3|zerotier|luci-app-zerotier|samba4-server|luci-app-samba4|luci-app-passwall|luci-app-passwall_INCLUDE_Xray|kmod-usb3|kmod-usb-xhci-hcd|kmod-usb-xhci-mtk)=y$' .config
+          } > build-report.txt
+
+          cat build-report.txt
+
+      - name: Upload N30 Pro firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-25.12.2-Netcore-N30-Pro
+          path: |
+            immortalwrt/bin/targets/mediatek/filogic/*netcore_n30-pro*
+            immortalwrt/bin/targets/mediatek/filogic/sha256sums
+            immortalwrt/build-report.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-25.12.2-build-diagnostics-${{ github.run_id }}
+          path: |
+            immortalwrt/build-logs/**
+            immortalwrt/logs/**
+            immortalwrt/.config
+            immortalwrt/feeds.conf.default
+            immortalwrt/build-report.txt
+          if-no-files-found: warn
+          retention-days: 30
